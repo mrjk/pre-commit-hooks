@@ -6,9 +6,8 @@
 - id: check-git-author
   name: Check git authors
   description: Check that GIT_AUTHOR is correctly setup
-  entry: bash
   language: script
+  entry: pre_commit_hooks/check-git-author
   pass_filenames: false
   args:
-    - author
-    - mrjk
+    - -s

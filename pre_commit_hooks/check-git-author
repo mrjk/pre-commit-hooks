@@ -1,5 +1,8 @@
 #!/bin/sh
 
+set -eu
+#set -x
+
 # See ALSO SECRET COMMIT AVOIDANCE
 # https://www.reinteractive.net/posts/167-ansible-real-life-good-practices
 
@@ -10,9 +13,10 @@
 
 
 # Use -1 to scan all commits ...
-GIT_IDENT_TMOUT=30
+GIT_IDENT_INTERACTIVE=${GIT_IDENT_INTERACTIVE:-true}
+GIT_IDENT_FORCE=${GIT_IDENT_FORCE:-false}
+GIT_IDENT_TMOUT=${GIT_IDENT_TMOUT:-30}
 GIT_IDENT_COMMIT_COUNT=${GIT_IDENT_COMMIT_COUNT:-50}
-
 
 is_empty_repo ()
 {
@@ -21,6 +25,7 @@ is_empty_repo ()
 
 show_current_config ()
 {
+  # TOFIX: Does this check current value in config file ?
   git var  -l | grep -i IDENT | sed 's/>.*/>/'
 }
 
@@ -37,6 +42,19 @@ detect_repo_identities ()
 
 print_confirm ()
 {
+  curr_ident=$1
+  av_idents=$2
+
+  # Return false if timeout is 0
+  if [[ "$GIT_IDENT_FORCE" == 'true' ]]; then
+    echo "INFO: Identity '$curr_ident' has been forced"
+    return 0
+  elif [[ "$GIT_IDENT_INTERACTIVE" == 'false' ]]; then
+    echo "ERR: Identity '$curr_ident' is not part of known idents: $av_idents"
+    echo "INFO: Set 'GIT_IDENT_FORCE=true' to force"
+    return 1
+  fi
+
   # Allow user to input into stdin
   exec < /dev/tty
 
@@ -66,10 +84,34 @@ print_current_identities ()
 main ()
 {
 
+  # Get cmd options
+  while getopts "sft:c:" o; do
+    case "${o}" in
+      f)
+        GIT_IDENT_FORCE=true
+        ;;
+      t)
+        GIT_IDENT_TMOUT=${OPTARG}
+        ;;
+      c)
+        GIT_IDENT_COUNT=${OPTARG}
+        ;;
+      s)
+        GIT_IDENT_INTERACTIVE=false
+        ;;
+      *)
+        echo "ERR: Unknown option: ${o}"
+        echo "INFO: Available flags: -f"
+        return 1
+        ;;
+    esac
+  done
+  shift $((OPTIND-1))
+
   # Skip if run inside BATS tests
-  [[ -z "$BATS_VERSION" ]] || return 0
+  [[ -z "${BATS_VERSION-}" ]] || return 0
   # Silently skip everything in case EDITOR=cat
-  [[ "$EDITOR" != 'cat' ]] || return 0
+  [[ "${EDITOR-}" != 'cat' ]] || return 0
 
   local repo_identities=$(detect_repo_identities)
   local current_identities=$(detect_current_identities)
@@ -86,7 +128,7 @@ main ()
         echo "WARN: Identity '$ident' was not found in this repository "
         echo "INFO: Current config;"
         print_current_identities
-        print_confirm
+        print_confirm "$ident" "$repo_identities"
       fi
     done 3<<< "$current_identities"
   fi
@@ -94,5 +136,5 @@ main ()
   echo "INFO: Git hook identity validation check passed with success."
 }
 
-main
+main ${@-}
 
