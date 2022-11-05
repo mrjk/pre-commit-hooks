@@ -1,0 +1,14 @@
+---
+# This file tells https://pre-commit.com/
+# which hooks are provided by this repo
+# for use by other git repos.
+
+- id: check-git-author
+  name: Check git authors
+  description: Check that GIT_AUTHOR is correctly setup
+  entry: bash
+  language: script
+  pass_filenames: false
+  args:
+    - author
+    - mrjk

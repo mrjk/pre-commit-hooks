@@ -1,0 +1,98 @@
+#!/bin/sh
+
+# See ALSO SECRET COMMIT AVOIDANCE
+# https://www.reinteractive.net/posts/167-ansible-real-life-good-practices
+
+# Warning this script can make you hang some scripts that try to make
+# some commits. If the tty is not visible, it can be complicated to find out
+# this is the root cause of the error.
+# To eliminate this behavior, we skip the test when EDITOR=cat.
+
+
+# Use -1 to scan all commits ...
+GIT_IDENT_TMOUT=30
+GIT_IDENT_COMMIT_COUNT=${GIT_IDENT_COMMIT_COUNT:-50}
+
+
+is_empty_repo ()
+{
+  ! git rev-parse HEAD &> /dev/null
+}
+
+show_current_config ()
+{
+  git var  -l | grep -i IDENT | sed 's/>.*/>/'
+}
+
+detect_current_identities ()
+{
+  show_current_config | cut -d= -f2 | sort -u
+}
+
+detect_repo_identities ()
+{
+  git log --pretty=oneline --all --date-order --pretty=format:'%an <%ae>;%cn <%ce>;%ge <%gn>' \
+    -n $GIT_IDENT_COMMIT_COUNT | sort -u | sed 's/;/\n/g' | sort -u | grep -v ' <>'
+}
+
+print_confirm ()
+{
+  # Allow user to input into stdin
+  exec < /dev/tty
+
+  # Wait timeout before user can cancel ...
+  read ${GIT_IDENT_TMOUT:+-t $GIT_IDENT_TMOUT} -p " ASK: Press enter or 'Y' continue, 'n' to abort: " r
+  if [[ "$?" -ne 0 ]]; then
+    echo
+    echo "WARN: Timeout expired (${GIT_IDENT_TMOUT}s), continuing ..."
+  fi
+
+  # Analyse answer
+  r=${r,,}
+  case "${r:-y}" in
+    q|n)
+      echo " ERR: User cancelled"
+      exit 1
+      ;;
+  esac
+
+}
+
+print_current_identities ()
+{
+  show_current_config | sed 's/^/INFO:   /'
+}
+
+main ()
+{
+
+  # Skip if run inside BATS tests
+  [[ -z "$BATS_VERSION" ]] || return 0
+  # Silently skip everything in case EDITOR=cat
+  [[ "$EDITOR" != 'cat' ]] || return 0
+
+  local repo_identities=$(detect_repo_identities)
+  local current_identities=$(detect_current_identities)
+
+  if is_empty_repo; then
+    echo "INFO: New git repo detected with identity:"
+    print_current_identities
+    print_confirm
+  else
+    while read -u 3 ident; do
+      if grep -q -E "$ident" <<< "$repo_identities"; then
+        echo "INFO: Identity '$ident' was found on this repository"
+      else
+        echo "WARN: Identity '$ident' was not found in this repository "
+        echo "INFO: Current config;"
+        print_current_identities
+        print_confirm
+      fi
+    done 3<<< "$current_identities"
+  fi
+
+  echo "INFO: Git hook identity validation check passed with success."
+}
+
+main
+
